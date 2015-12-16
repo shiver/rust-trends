@@ -11,23 +11,65 @@
 //  * Configuration from env variables.
 //  * File store (rusqlite)
 //  * Console opts (clap)
-#![feature(plugin)]
-#![plugin(clippy)]
+// #![feature(plugin)]
+// #![plugin(clippy)]
 extern crate hyper;
 extern crate chrono;
 extern crate serde;
 extern crate serde_json;
+extern crate rusqlite;
 
-use std::io::Read;
+use std::io::{Read, Error, ErrorKind};
 use std::fs::File;
 
 use hyper::client::Client;
 use hyper::header::{Headers, UserAgent};
 use chrono::*;
 use serde_json::Value;
-
+use rusqlite::{SqliteConnection, SqliteError, SqliteRows};
 
 const GITHUB_API_URL: &'static str = "https://api.github.com";
+const STORE_PATH: &'static str = "trends.db";
+
+pub struct Store {
+    version: Option<u32>,
+    db: SqliteConnection
+}
+
+impl Store {
+    fn new() -> Store {
+        let result = rusqlite::SqliteConnection::open(STORE_PATH);
+        Store { version: None, db: result.expect("Failed to open store") }
+    }
+
+    fn cast_error(sqlite_err: SqliteError) -> Error {
+        Error::new(ErrorKind::Interrupted, sqlite_err.message)
+    }
+
+    fn query(&self, stmt: &str) -> Result<SqliteRows, Error> {
+        let stmt = match self.db.prepare("SELECT version FROM _trends") {
+            Ok(s) => s,
+            Err(e) => return Err(Store::cast_error(e))
+        };
+
+        let result = match stmt.query(&[]) {
+            Ok(r) => r,
+            Err(e) => return Err(Store::cast_error(e))
+        };
+
+        Ok(result)
+    }
+
+    fn get_version(&self) -> Result<u32, Error> {
+        let rows = try!(self.query("SELECT version FROM _trends"));
+        let result = match rows.next() {
+            Some(r) => r.get(0),
+            None => return Err(Error::new(ErrorKind::NotFound))
+        };
+
+        Ok(result)
+    }
+}
 
 #[derive(Debug)]
 struct Trend {
@@ -96,6 +138,7 @@ fn temp_fetch_trends() -> Value {
 }
 
 fn main() {
+    let store = Store::new();
     let json = temp_fetch_trends();
     let items = json.find("items").unwrap();
 

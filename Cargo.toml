@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Robert Vally <rvally@gmail.com>"]
 
 [dependencies]
-clippy = "*"
+#clippy = "*"
 chrono = "*"
 hyper = "*"
 serde = "*"
