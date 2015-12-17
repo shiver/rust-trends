@@ -32,39 +32,46 @@ const GITHUB_API_URL: &'static str = "https://api.github.com";
 const STORE_PATH: &'static str = "trends.db";
 
 pub struct Store {
-    version: Option<u32>,
-    db: SqliteConnection
+    db: SqliteConnection,
+    schema: Option<StoreSchema>,
+}
+
+pub struct StoreSchema {
+    build: i32, /* created: Option<DateTime<UTC>>,
+                 * last_run: Option<DateTime<UTC>> */
 }
 
 impl Store {
     fn new() -> Store {
         let result = rusqlite::SqliteConnection::open(STORE_PATH);
-        Store { version: None, db: result.expect("Failed to open store") }
+        Store {
+            schema: None,
+            db: result.expect("Failed to open store"),
+        }
     }
 
     fn cast_error(sqlite_err: SqliteError) -> Error {
         Error::new(ErrorKind::Interrupted, sqlite_err.message)
     }
 
-    fn query(&self, stmt: &str) -> Result<SqliteRows, Error> {
-        let stmt = match self.db.prepare("SELECT version FROM _trends") {
-            Ok(s) => s,
-            Err(e) => return Err(Store::cast_error(e))
-        };
+    fn query<F>(&self, query: &'static str, closure: F) -> Result<SqliteRows, Error> {
+        let mut stmt = self.db.prepare(query).unwrap();
+        let mut rows = stmt.query_map(&[], closure).unwrap();
 
-        let result = match stmt.query(&[]) {
-            Ok(r) => r,
-            Err(e) => return Err(Store::cast_error(e))
-        };
-
-        Ok(result)
+        Ok(rows)
     }
 
-    fn get_version(&self) -> Result<u32, Error> {
-        let rows = try!(self.query("SELECT version FROM _trends"));
+    fn get_build(&self) -> Result<i32, Error> {
+        let mut rows = try!(self.query("SELECT build, created, last_run FROM schema", |row| {
+            StoreSchema {
+                build: row.get(0), /* created: row.get(1),
+                                    * last_run: row.get(2), */
+            }
+        }));
+
         let result = match rows.next() {
-            Some(r) => r.get(0),
-            None => return Err(Error::new(ErrorKind::NotFound))
+            Some(r) => r.unwrap().get(0),
+            None => return Err(Error::new(ErrorKind::NotFound, "Schema not found.")),
         };
 
         Ok(result)
